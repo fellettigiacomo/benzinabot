@@ -5,7 +5,7 @@ mysql = dbHandler.ch("localhost", "root", "", "benzinabot")
 
 class humanHandler:
     def getNearestStations(self, lat, lon, max_distance, tipo_carburante, is_self, carburanteQTY, idUtente):
-        # trovo i tre benzinai più vicini nel database
+        # trovo i tre benzinai più vicini nel database, 10 benzinai in linea d'aria
         query = f"""
         SELECT a.Bandiera, a.Latitudine, a.Longitudine, p.prezzo, 
             (6371 * acos(cos(radians({lat})) * cos(radians(a.Latitudine)) * cos(radians(a.Longitudine) - radians({lon})) + sin(radians({lat})) * sin(radians(a.Latitudine)))) AS Distanza
@@ -14,17 +14,31 @@ class humanHandler:
         WHERE p.descCarburante = '{tipo_carburante}' AND p.isSelf = {int(is_self)}
             AND (6371 * acos(cos(radians({lat})) * cos(radians(a.Latitudine)) * cos(radians(a.Longitudine) - radians({lon})) + sin(radians({lat})) * sin(radians(a.Latitudine)))) < {max_distance}
         ORDER BY prezzo ASC
-        LIMIT 6
+        LIMIT 500
         """
         result = mysql.fetch(query)
+
         # prendo i dati per calcolare la convenienza
         capacitaSerbatoio = mysql.fetch(f"SELECT capacitaSerbatoio FROM utenti WHERE idUtente = {idUtente}")[0][0]
         consumo = mysql.fetch(f"SELECT kmLitro FROM utenti WHERE idUtente = {idUtente}")[0][0]
 
         updatedResults = []
+        # calcolo costo con la distanza punto - punto
         for r in result:
             r = list(r)
-            latImp = r[1]
+            prezzo = (r[3] * (capacitaSerbatoio * carburanteQTY)) + (2*((r[4] / consumo) * r[3]))
+            r.append(round(prezzo, 4))
+            updatedResults.append(r)
+
+        result = sorted(updatedResults, key=lambda x: x[5])
+        result = updatedResults[:5]
+        result = [r[:-1] for r in result]
+
+        # con i 5 fai ulteriore recerca per il migliore
+        updatedResults = []
+        for r in result:
+            r = list(r)
+            latImp = r[1]   
             lonImp = r[2]
             summary = requestHandler.getOSRdistance(lat, lon, latImp, lonImp)
             r[4] = int(summary['distance'])/1000
@@ -48,7 +62,7 @@ class humanHandler:
             ur[5] = str(ur[5]) + " min"
 
         
-        updatedResults = sorted(updatedResults[1:], key=lambda x: x[7])
+        updatedResults = sorted(updatedResults, key=lambda x: x[7])
 
         i = 0
         msg = ""
